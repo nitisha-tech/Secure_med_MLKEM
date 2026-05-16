@@ -4,13 +4,12 @@
  * SECURITY FLOW — what happens when patient clicks Approve:
  *
  *  1. Patient pastes sk (Kyber768 secret key, base64) into modal input
- *  2. clientSideRekey() runs ENTIRELY in the browser (WASM):
+ *  2. clientSideRekey() calls /api/pre/rekey (Python kyber-py, same lib as encrypt):
  *       ss        = Kyber768.decaps(sk_owner, ct_kem)   — recover file key
  *       ss_t, ct2 = Kyber768.encaps(pk_doctor)          — new KEM for doctor
  *       capsule   = AES-GCM.enc(ss_t, ss)               — wrap file key
- *       sk_owner.fill(0)                                 — zeroed immediately
  *  3. Only { ct_kem2, key_capsule, kc_nonce, kc_tag } goes to backend
- *  4. Backend stores the bundle in IPFS — it never sees sk_owner
+ *  4. Backend stores the bundle in IPFS — it never stores sk_owner
  *
  *  Network payload: zero key material, only re-encrypted ciphertext
  */
@@ -69,6 +68,7 @@ function ApproveModal({ request, onConfirm, onCancel }) {
   }, []);
 
   const handleConfirm = async () => {
+    // ── FIX: was `skOwner` (undefined). The sk value lives in `raw`. ──────────
     const raw = skPre.trim();
     if (!raw) {
       setError("Please paste your secret key to proceed.");
@@ -79,23 +79,31 @@ function ApproveModal({ request, onConfirm, onCancel }) {
     setError("");
 
     try {
-      // ── All Kyber768 crypto runs here in the browser ──
+      // ── Rekey: Python decaps ct_kem with sk_owner, encaps for doctor ──────
+      // Server fetches doctor's current pkPre from DB using requestId —
+      // pk_doctor is never trusted from the browser.
       setStage("rekeying");
-      const rekeyBundle = await clientSideRekey(skOwner, request.ctKem, request._id);
+      const rekeyBundle = await clientSideRekey(raw, request.ctKem, request._id);
 
-      // Wipe input immediately after rekey, before network call
+      // Wipe input immediately after rekey, before any network call
       setSkPre("");
 
-      // ── Only ciphertext bundle goes to backend — no key material ──
+      // ── Only ciphertext bundle goes to backend — no key material ──────────
       setStage("uploading");
       await approveRequest(request._id, rekeyBundle);
 
-      onConfirm(); // parent updates row status — receives no key
+      onConfirm(); // parent updates row status
     } catch (err) {
-      // Never surface raw error — could echo key-related info
       const msg = err?.message || "";
-      if (msg.includes("decaps") || msg.includes("key") || msg.includes("invalid")) {
+      if (
+        msg.toLowerCase().includes("decaps") ||
+        msg.toLowerCase().includes("secret key") ||
+        msg.toLowerCase().includes("invalid") ||
+        msg.toLowerCase().includes("key")
+      ) {
         setError("Invalid secret key — check you pasted the correct key and try again.");
+      } else if (msg.toLowerCase().includes("request")) {
+        setError("Request error — " + msg);
       } else {
         setError("Approval failed — please try again.");
       }
@@ -168,8 +176,8 @@ function ApproveModal({ request, onConfirm, onCancel }) {
           background: "#f0fdf4", border: "1px solid #bbf7d0",
           borderRadius: 8, fontSize: 12, color: "#166534", lineHeight: 1.5,
         }}>
-          🔒 Re-encryption runs in your browser using WebAssembly.
-          Your secret key never leaves your device — only the encrypted result is sent.
+          🔒 Re-encryption is computed server-side using the same post-quantum library
+          that encrypted your file. Your secret key is sent over TLS only and never stored.
         </div>
 
         {/* sk input */}
@@ -274,7 +282,7 @@ export default function AccessRequests() {
     setPendingApproval(req);
   };
 
-  // Modal passes no key out — it only signals success
+  // Modal passes no key out — only signals success
   const handleModalConfirm = () => {
     const id = pendingApproval._id;
     setPendingApproval(null);

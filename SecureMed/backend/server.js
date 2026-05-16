@@ -156,6 +156,8 @@ app.post("/api/pre/rekey", authenticateToken, async (req, res) => {
 
     // ── Fetch doctor's CURRENT pkPre — never trust pk from browser ────────────
     const doctor = await User.findById(accessReq.doctorId).select("pkPre name").lean();
+    console.log(`Doctor pkPre in DB (first 40): ${doctor?.pkPre?.substring(0, 40)}`);
+    console.log(`Doctor pkPre in DB (first 40): ${doctor?.pkPre?.substring(0, 40)}`);
     if (!doctor?.pkPre)
       return res.status(400).json({ message: "Doctor does not have a PRE public key set" });
 
