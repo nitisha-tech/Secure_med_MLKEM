@@ -81,11 +81,7 @@ function ApproveModal({ request, onConfirm, onCancel }) {
     try {
       // ── All Kyber768 crypto runs here in the browser ──
       setStage("rekeying");
-      const rekeyBundle = await clientSideRekey(
-        raw,                  // sk_owner — stays in WASM, zeroed after decaps
-        request.pkDoctor,     // public — fine
-        request.ctKem,        // public — fine
-      );
+      const rekeyBundle = await clientSideRekey(skOwner, request.ctKem, request._id);
 
       // Wipe input immediately after rekey, before network call
       setSkPre("");

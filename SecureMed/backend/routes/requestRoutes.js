@@ -9,6 +9,7 @@ import {
   getDoctorRequests
 } from "../controllers/requestController.js";
 import { protect } from "../middleware/authMiddleware.js";
+import { resetRequest } from "../controllers/requestController.js";
 
 const router = express.Router();
 
@@ -18,5 +19,5 @@ router.get("/mine",           protect, getDoctorRequests);   // doctor sees thei
 router.post("/:id/approve",   protect, approveRequest);      // patient approves + PRE
 router.post("/:id/reject",    protect, rejectRequest);       // patient rejects
 router.get("/:id/fetch",      protect, fetchApprovedBundle); // doctor fetches bundle
-
+router.post("/:id/reset", protect, resetRequest);
 export default router;
