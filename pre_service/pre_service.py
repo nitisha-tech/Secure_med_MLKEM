@@ -2,15 +2,20 @@
 SecureMed PQ-PRE Microservice
 ==============================
 Post-Quantum Proxy Re-Encryption using:
-  - CRYSTALS-Kyber768 (NIST FIPS 203) for Key Encapsulation
+  - ML-KEM-768 (FIPS 203 / NIST standard) for Key Encapsulation
   - AES-256-GCM for symmetric file encryption
   - HMAC-SHA256 for CP-ABE policy key derivation
+
+IMPORTANT: Uses kyber_py.ml_kem.ML_KEM_768 (FIPS 203 compliant),
+NOT kyber_py.kyber.Kyber768 (pre-standardisation draft).
+ML_KEM_768 is fully interoperable with @noble/post-quantum ml_kem768,
+allowing sk to stay in the browser for all operations.
 """
 
 import os, json, base64, hashlib, hmac
 from flask import Flask, request, jsonify
 
-from kyber_py.kyber import Kyber768
+from kyber_py.ml_kem import ML_KEM_768          # ← FIPS 203, interop with Noble
 from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
@@ -66,7 +71,7 @@ def health():
     return jsonify({
         'status':  'ok',
         'service': 'SecureMed PQ-PRE',
-        'scheme':  'Kyber768 + AES-256-GCM',
+        'scheme':  'ML-KEM-768 (FIPS 203) + AES-256-GCM',
         'pq':      True
     })
 
@@ -77,14 +82,14 @@ def health():
 @app.route('/pre/keygen', methods=['POST'])
 def pre_keygen():
     try:
-        pk, sk = Kyber768.keygen()
+        pk, sk = ML_KEM_768.keygen()
         return jsonify({ 'pk': b64e(pk), 'sk': b64e(sk) })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PQ-PRE — ENCRYPT
-# Patient encrypts file under their Kyber768 public key.
+# Server encrypts file under patient's ML-KEM-768 public key.
 #
 # Flow:
 #   KEM: encaps(pk_patient) → (ss, ct_kem)
@@ -98,7 +103,7 @@ def pre_encrypt():
         pk        = b64d(data['pk'])
         plaintext = b64d(data['plaintext'])
 
-        ss, ct_kem = Kyber768.encaps(pk)
+        ss, ct_kem = ML_KEM_768.encaps(pk)   # returns (ss, ct)
         enc        = aes_gcm_encrypt(ss, plaintext)
 
         return jsonify({
@@ -113,11 +118,8 @@ def pre_encrypt():
 # ─────────────────────────────────────────────────────────────────────────────
 # PQ-PRE — DECRYPT OWNER (Patient decrypts their own file)
 #
-# This is DIFFERENT from doctor decrypt — patient uses the ORIGINAL ct_kem,
-# not ct_kem2. No re-encryption material involved.
-#
 # Flow:
-#   1. decaps(sk_owner, ct_kem) → ss          (recover file key directly)
+#   1. decaps(sk_owner, ct_kem) → ss
 #   2. AES-GCM.dec(ss, ct_file) → plaintext
 #
 # sk_owner sent over TLS, never stored.
@@ -130,43 +132,7 @@ def pre_decrypt_owner():
         sk_owner = b64d(data['sk_owner'])
         ct_kem   = b64d(data['ct_kem'])
 
-        # Recover the shared secret (file key) directly
-        ss = Kyber768.decaps(sk_owner, ct_kem)
-
-        # Decrypt the file
-        plaintext = aes_gcm_decrypt(ss, {
-            'nonce':      data['nonce'],
-            'ciphertext': data['ct_file'],
-            'tag':        data['tag']
-        })
-
-        return jsonify({'plaintext': b64e(plaintext)})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PQ-PRE — DECRYPT DOCTOR (Doctor decrypts re-encrypted bundle)
-#
-# Flow:
-#   1. decaps(sk_doctor, ct_kem2)           → ss_transit
-#   2. AES-GCM.dec(ss_transit, key_capsule) → ss  (original file key)
-#   3. AES-GCM.dec(ss, ct_file)             → plaintext
-# ─────────────────────────────────────────────────────────────────────────────
-
-@app.route('/pre/decrypt', methods=['POST'])
-def pre_decrypt():
-    try:
-        data      = request.json
-        sk_doctor = b64d(data['sk_doctor'])
-
-        ct_kem2    = b64d(data['ct_kem2'])
-        ss_transit = Kyber768.decaps(sk_doctor, ct_kem2)
-
-        ss = aes_gcm_decrypt(ss_transit, {
-            'nonce':      data['kc_nonce'],
-            'ciphertext': data['key_capsule'],
-            'tag':        data['kc_tag']
-        })
+        ss = ML_KEM_768.decaps(sk_owner, ct_kem)
 
         plaintext = aes_gcm_decrypt(ss, {
             'nonce':      data['nonce'],
@@ -180,20 +146,24 @@ def pre_decrypt():
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PQ-PRE — REKEY (Patient generates re-encryption material)
+#
+# Flow:
+#   1. decaps(sk_owner, ct_kem)        → ss  (recover file key)
+#   2. encaps(pk_doctor)               → (ss_transit, ct_kem2)
+#   3. AES-GCM.enc(ss_transit, ss)     → key_capsule
 # ─────────────────────────────────────────────────────────────────────────────
 
 @app.route('/pre/rekey', methods=['POST'])
 def pre_rekey():
     try:
         data       = request.json
-        print("REKEY received keys:", list(data.keys()) if data else "NO DATA")
         sk_patient = b64d(data['sk_owner'])
         pk_doctor  = b64d(data['pk_doctor'])
         ct_kem     = b64d(data['ct_kem'])
 
-        ss = Kyber768.decaps(sk_patient, ct_kem)
+        ss = ML_KEM_768.decaps(sk_patient, ct_kem)
 
-        ss_transit, ct_kem2 = Kyber768.encaps(pk_doctor)
+        ss_transit, ct_kem2 = ML_KEM_768.encaps(pk_doctor)
 
         key_capsule_bundle = aes_gcm_encrypt(ss_transit, ss)
 
@@ -309,11 +279,11 @@ def issue_key():
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    print("=" * 56)
+    print("=" * 60)
     print("  SecureMed Post-Quantum PRE Microservice")
-    print("  KEM : CRYSTALS-Kyber768 (NIST FIPS 203)")
+    print("  KEM : ML-KEM-768 (FIPS 203 — interop with @noble/post-quantum)")
     print("  DEM : AES-256-GCM")
     print("  ABE : HMAC-SHA256 policy key derivation")
     print("  PQ  : YES — quantum-resistant file confidentiality")
-    print("=" * 56)
+    print("=" * 60)
     app.run(host='0.0.0.0', port=5001, debug=False)
