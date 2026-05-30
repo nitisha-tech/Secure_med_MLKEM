@@ -37,3 +37,19 @@ __pycache__/
 Thumbs.db
 
 *.tar.gz
+# Wallets
+wallet/
+**/wallet/
+
+# Fabric identities
+*.id
+
+# CP-ABE secrets
+pre_service/keys/
+*.bin
+
+# Environment files
+.env
+.env.*
+**/.env
+**/.env.*
