@@ -22,7 +22,26 @@ const recordSchema = new mongoose.Schema({
   patientId:        { type: String, default: null,  index: true }, // PAT-XXXXXX — denormalized for fast lookup
   uploaderFabricId: { type: String, default: null },
   pkOwner:          { type: String, default: null },
+  isDeleted:        { type: Boolean, default: false },
+  deletedAt:       { type: Date, default: null },
 
+  // for prescriptions 
+  issuedByDoctor: {
+   type: mongoose.Schema.Types.ObjectId,
+   ref: "User",
+   default: null
+},
+
+issuedByDoctorName: {
+   type: String,
+   default: null
+},
+
+recordSource: {
+   type: String,
+   enum: ["patient_upload", "doctor_prescription"],
+   default: "patient_upload"
+},
   // department denormalized so /discover can filter without joining User
   department: { type: String, default: null, index: true },
 

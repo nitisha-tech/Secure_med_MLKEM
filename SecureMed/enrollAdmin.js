@@ -9,7 +9,7 @@ const fs   = require('fs');
 // PATHS — same constants as Doc_function.js
 // ─────────────────────────────────────────────
 
-const CONNECTION_PROFILE_PATH = '/mnt/d/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/connection-org1.json';
+const CONNECTION_PROFILE_PATH = '/home/nitisha/fabric-dev/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/connection-org1.json';
 const WALLET_PATH = path.resolve(__dirname, 'wallet');
 
 async function enrollAdmin() {

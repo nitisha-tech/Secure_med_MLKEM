@@ -6,6 +6,8 @@ import AccessRequest     from "../models/AccessRequest.js";
 import { preEncrypt, preDecrypt, cpAbeEncrypt, cpAbeDecrypt } from "../services/preService.js";
 import { uploadEncryptedBundle, fetchEncryptedBundle, gatewayUrl } from "../services/ipfsService.js";
 import { uploadRecord as fabricUpload, queryByDepartment } from "../services/fabricService.js";
+import { log, logEvent, ACTIONS } from "../services/blockchainLogger.js";
+
 
 // ── POST /api/records/upload ──────────────────────────────────────────────────
 export const uploadRecord = async (req, res) => {
@@ -53,7 +55,16 @@ export const uploadRecord = async (req, res) => {
       pkOwner,
     });
     await newRecord.save();
-
+    // ── Blockchain audit log ──────────────────────────────────────────────
+    const uploader = await User.findById(userId).select("name _id role").lean();
+    if (uploader) {
+      log.recordUpload(
+        uploader,
+        newRecord.title,
+        newRecord._id.toString(),
+        newRecord.department
+      );
+    }
     res.status(201).json({
       success: true,
       message: "Record encrypted and stored",
@@ -91,6 +102,11 @@ export const decryptRecord = async (req, res) => {
     const result = await preDecrypt(skOwner, bundle);
 
     res.json({ success: true, plaintext: result.plaintext, fileName: record.fileName, mimeType: guessMime(record.fileName) });
+    // ── Blockchain audit log ──────────────────────────────────────────────
+    const viewer = await User.findById(req.user._id).select("name _id role").lean();
+    if (viewer) {
+      log.recordView(viewer, record.title, record._id.toString());
+    }
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -190,10 +206,22 @@ export const discoverRecords = async (req, res) => {
           if (dbRecord) {
             const patient = await User.findById(dbRecord.userId).select("name email patientId").lean();
             accessible.push({ ...dbRecord, patientName: patient?.name || "Unknown", patientEmail: patient?.email || "", cid });
+            // log once per discover call, not per record
           }
         } catch (_) { /* CP-ABE denied */ }
       }
+        // ── Blockchain audit log ──────────────────────────────────────────────
+        logEvent({
+      actor:   user.name,
+      actorId: user._id.toString(),
+      role:    user.role || "doctor",
+      action:  ACTIONS.DOCTOR_RECORD_VIEW,
+      detail:  `Dr. ${user.name} queried ${accessible.length} record(s) in ${query.trim()}`,
+      meta:    { department: query.trim(), resultCount: accessible.length },
+    });
       return res.json({ success: true, data: accessible, source: "fabric" });
+    
+    
     }
 
     // ── title — fuzzy record title / type ────────────────────────────────────

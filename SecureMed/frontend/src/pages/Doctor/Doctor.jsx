@@ -8,7 +8,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import {
   getProfile, discoverRecords, getMyRequests,
-  createRequest, getLogs, getApprovedPatients,
+  createRequest, getLogs,getMyLogs, getApprovedPatients,
 } from "../../services/api";
 import { logout } from "../../services/auth";
 import { useRecordViewer } from "./RecordViewer";
@@ -584,40 +584,193 @@ function RequestsTab() {
 
 // ─── Logs tab ─────────────────────────────────────────────────────────────────
 
-function LogsTab() {
-  const [logs,    setLogs]    = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState("");
+const ACTION_COLOR = {
+  AUTH_LOGIN:         "bg-slate-100 text-slate-600",
+  AUTH_REGISTER:      "bg-blue-100 text-blue-700",
+  RECORD_UPLOAD:      "bg-teal-100 text-teal-700",
+  RECORD_VIEW:        "bg-sky-100 text-sky-700",
+  DOCTOR_RECORD_VIEW: "bg-indigo-100 text-indigo-700",
+  ACCESS_REQUEST:     "bg-amber-100 text-amber-700",
+  ACCESS_GRANTED:     "bg-green-100 text-green-700",
+  ACCESS_DENIED:      "bg-red-100 text-red-700",
+  REKEY_GENERATED:    "bg-purple-100 text-purple-700",
+  PRESCRIPTION_ADD:   "bg-pink-100 text-pink-700",
+};
 
-  useEffect(() => {
-    getLogs()
-      .then(res => setLogs(res.data || res.logs || []))
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
+const ACTION_ICON = {
+  AUTH_LOGIN:         "🔐",
+  AUTH_REGISTER:      "👤",
+  RECORD_UPLOAD:      "📤",
+  RECORD_VIEW:        "👁",
+  DOCTOR_RECORD_VIEW: "🩺",
+  ACCESS_REQUEST:     "🔑",
+  ACCESS_GRANTED:     "✅",
+  ACCESS_DENIED:      "🚫",
+  REKEY_GENERATED:    "🔄",
+  PRESCRIPTION_ADD:   "💊",
+};
+
+function LogsTab() {
+  const [logs,     setLogs]     = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState("");
+  const [expanded, setExpanded] = useState(null); // eventId of expanded row
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await getMyLogs();
+      setLogs(res.data || []);
+    } catch (err) {
+      setError(err.message || "Failed to load activity logs.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const META_LABELS = {
+    recordId:    "Record ID",
+    recordTitle: "Record Title",
+    department:  "Department",
+    requestId:   "Request ID",
+    patientId:   "Patient ID",
+    patientName: "Patient Name",
+    doctorId:    "Doctor ID",
+    doctorName:  "Doctor Name",
+    email:       "Email",
+    reason:      "Reason",
+    ipfsCid:     "IPFS CID",
+  };
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <p className="text-sm text-gray-500">
+          Your immutable activity trail recorded on Hyperledger Fabric.
+        </p>
+        <button onClick={load}
+          className="flex items-center gap-1.5 text-sm text-blue-600 hover:underline">
+          <RefreshCw className="w-4 h-4" /> Refresh
+        </button>
+      </div>
+
       <ErrorBanner message={error} onDismiss={() => setError("")} />
+
       {loading ? <Spinner /> : !logs.length ? (
-        <Empty message="No activity logged yet." />
+        <Empty icon={History} message="No activity recorded yet." />
       ) : (
-        <div className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-100 divide-y">
-          {logs.map((log, i) => (
-            <div key={log._id || i} className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50">
-              <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <History className="w-4 h-4 text-blue-500" />
+        <div className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-100 divide-y overflow-hidden">
+          {logs.map((log, i) => {
+            const meta = log.meta?.meta || log.meta || {};
+            const isOpen = expanded === (log.id || i);
+
+            return (
+              <div key={log.id || i}>
+                {/* Row */}
+                <div
+                  onClick={() => setExpanded(isOpen ? null : (log.id || i))}
+                  className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                >
+                  {/* Icon */}
+                  <div className="w-9 h-9 rounded-xl bg-gray-50 flex items-center justify-center flex-shrink-0 mt-0.5 text-lg">
+                    {ACTION_ICON[log.action] || "⚡"}
+                  </div>
+
+                  {/* Main content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${ACTION_COLOR[log.action] || "bg-gray-100 text-gray-500"}`}>
+                        {log.action?.replace(/_/g, " ") || "EVENT"}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-700">{log.detail}</p>
+
+                    {/* Inline meta pills */}
+                    {(() => {
+                      const pills = [
+                        meta.patientName  && `👤 ${meta.patientName}`,
+                        meta.recordTitle  && `📄 ${meta.recordTitle}`,
+                        meta.department   && `🏥 ${meta.department}`,
+                        meta.doctorName   && `🩺 ${meta.doctorName}`,
+                      ].filter(Boolean);
+                      return pills.length > 0 ? (
+                        <div className="flex gap-2 flex-wrap mt-1.5">
+                          {pills.map(p => (
+                            <span key={p} className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{p}</span>
+                          ))}
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+
+                  {/* Time + expand */}
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    <span className="text-xs text-gray-400 whitespace-nowrap">{log.time}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-gray-300 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                  </div>
+                </div>
+
+                {/* Expanded block detail */}
+                {isOpen && (
+                  <div className="px-6 pb-5 bg-slate-50 border-t border-slate-100">
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                      {/* Block fields */}
+                      <div className="bg-white rounded-xl p-4 space-y-2 ring-1 ring-slate-100">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Block Fields</p>
+                        {[
+                          ["Event ID",   log.id],
+                          ["TX Hash",    log.hash],
+                          ["Timestamp",  log.time],
+                          ["Action",     log.action],
+                        ].map(([label, val]) => val ? (
+                          <div key={label} className="flex gap-3 text-xs">
+                            <span className="text-slate-400 w-20 shrink-0">{label}</span>
+                            <span className="font-mono text-slate-700 break-all">{val}</span>
+                          </div>
+                        ) : null)}
+                      </div>
+
+                      {/* Event metadata */}
+                      {Object.keys(meta).length > 0 && (
+                        <div className="bg-white rounded-xl p-4 space-y-2 ring-1 ring-blue-100">
+                          <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-3">Event Metadata</p>
+                          {Object.entries(meta).map(([k, v]) => (
+                            <div key={k} className="flex gap-3 text-xs">
+                              <span className="text-slate-400 w-24 shrink-0">{META_LABELS[k] || k}</span>
+                              <span className="font-mono text-slate-700 break-all">
+                                {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Raw JSON */}
+                    <details className="mt-3">
+                      <summary className="text-[11px] text-slate-400 cursor-pointer hover:text-slate-600 select-none">
+                        View raw JSON
+                      </summary>
+                      <pre className="mt-2 text-[10px] bg-slate-900 text-emerald-400 rounded-xl p-4 overflow-x-auto leading-relaxed">
+                        {JSON.stringify(log, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                )}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800">{log.action || log.event || "Event"}</p>
-                {log.details && <p className="text-xs text-gray-500 mt-0.5 truncate">{log.details}</p>}
-              </div>
-              <span className="text-xs text-gray-400 whitespace-nowrap mt-1">
-                {log.createdAt ? new Date(log.createdAt).toLocaleString("en-IN") : ""}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
+      )}
+
+      {!loading && logs.length > 0 && (
+        <p className="text-xs text-gray-400 text-right">
+          {logs.length} event{logs.length !== 1 ? "s" : ""} · Immutable Fabric ledger
+        </p>
       )}
     </div>
   );

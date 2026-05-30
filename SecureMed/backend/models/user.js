@@ -25,7 +25,11 @@ const userSchema = new mongoose.Schema({
     sparse: true,   // only indexes docs where field exists — undefined is ignored
     index:  true,
   },
-
+  status: {
+  type: String,
+  enum: ["Active", "Suspended", "On Leave"],
+  default: "Active",
+},
   // ── Doctor-only fields ────────────────────────────────────────────────────
   medicalId:      String,   // unique per doctor, enforced at application level
   specialization: String,

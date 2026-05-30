@@ -25,12 +25,27 @@ class HealthcareLogs extends Contract {
         }
 
         const record = {
+            docType: 'record',
+
             recordID,
+
             uploaderID,
+
             department,
-            timestamp:    Math.floor(Date.now() / 1000),  // Unix seconds
-            accessPolicy, // e.g. "dept::cardiology AND role::doctor"
-            encryptedCID  // CP-ABE encrypted IPFS CID — never a plain CID
+
+            accessPolicy,
+
+            encryptedCID,
+
+            txID: ctx.stub.getTxID(),
+
+            mspId: ctx.clientIdentity.getMSPID(),
+
+            createdAt: Math.floor(Date.now() / 1000),
+
+            updatedAt: Math.floor(Date.now() / 1000),
+
+            isDeleted: false
         };
 
         await ctx.stub.putState(recordID, Buffer.from(JSON.stringify(record)));
@@ -42,6 +57,297 @@ class HealthcareLogs extends Contract {
         );
 
         return JSON.stringify(record);
+    }
+
+    // ─────────────────────────────────────────
+    // LOG ACCESS REQUEST
+    // Called whenever a doctor requests, is granted,
+    // or is denied access to a record.
+    // logID must be unique — use MongoDB _id from AccessRequest.
+    // ─────────────────────────────────────────
+
+    async LogAccessRequest(ctx, logID, doctorID, doctorName, recordID, patientID, status) {
+
+        // Validate status
+        const validStatuses = ['pending', 'approved', 'rejected'];
+        if (!validStatuses.includes(status)) {
+            throw new Error(`Invalid status "${status}". Must be one of: pending, approved, rejected`);
+        }
+
+        if (!logID || !doctorID || !doctorName || !recordID || !patientID) {
+            throw new Error('All fields are required: logID, doctorID, doctorName, recordID, patientID, status');
+        }
+
+        const logKey = `accesslog_${logID}`;
+
+        const logEntry = {
+            docType: 'accessLog',
+            logID,
+            doctorID,
+            doctorName,
+            recordID,
+            patientID,
+            status,           // 'pending' | 'approved' | 'rejected'
+            timestamp: Math.floor(Date.now() / 1000),
+        };
+
+        await ctx.stub.putState(logKey, Buffer.from(JSON.stringify(logEntry)));
+
+        ctx.stub.setEvent(
+            'AccessLogged',
+            Buffer.from(JSON.stringify({ logID, doctorName, recordID, status }))
+        );
+
+        return JSON.stringify(logEntry);
+    }
+
+
+    async LogEvent(
+        ctx,
+        eventId,
+        actor,
+        actorId,
+        role,
+        action,
+        detail,
+        metaJSON
+    ) {
+
+        if (
+            !eventId ||
+            !actor ||
+            !actorId ||
+            !role ||
+            !action
+        ) {
+            throw new Error('Missing required LogEvent fields.');
+        }
+
+        const meta = metaJSON
+            ? JSON.parse(metaJSON)
+            : {};
+
+        const event = {
+
+            docType: 'eventLog',
+
+            eventId,
+
+            actor,
+
+            actorId,
+
+            role,
+
+            action,
+
+            detail,
+
+            meta,
+
+            txID: ctx.stub.getTxID(),
+
+            mspId: ctx.clientIdentity.getMSPID(),
+
+            timestamp: Math.floor(Date.now() / 1000)
+        };
+
+        await ctx.stub.putState(
+            `event_${eventId}`,
+            Buffer.from(JSON.stringify(event))
+        );
+
+        ctx.stub.setEvent(
+            'LedgerEventLogged',
+            Buffer.from(JSON.stringify({
+                eventId,
+                actor,
+                action
+            }))
+        );
+
+        return JSON.stringify(event);
+    }
+
+    async GetAllEvents(ctx, actionFilter = 'All') {
+
+        let queryString;
+
+        if (actionFilter === 'All') {
+
+            queryString = JSON.stringify({
+                selector: {
+                    docType: 'eventLog'
+                }
+            });
+
+        } else {
+
+            queryString = JSON.stringify({
+                selector: {
+                    docType: 'eventLog',
+                    action: actionFilter
+                }
+            });
+        }
+
+        const iterator = await ctx.stub.getQueryResult(queryString);
+
+        const results = [];
+
+        while (true) {
+
+            const res = await iterator.next();
+
+            if (res.done) break;
+
+            if (res.value && res.value.value) {
+
+                try {
+
+                    results.push(
+                        JSON.parse(
+                            res.value.value.toString('utf8')
+                        )
+                    );
+
+                } catch (_) { }
+            }
+        }
+
+        await iterator.close();
+
+        return JSON.stringify(results);
+    }
+    async GetEventsByActor(ctx, actorId) {
+
+        const queryString = JSON.stringify({
+            selector: {
+                docType: 'eventLog',
+                actorId
+            }
+        });
+
+        const iterator = await ctx.stub.getQueryResult(queryString);
+
+        const results = [];
+
+        while (true) {
+
+            const res = await iterator.next();
+
+            if (res.done) break;
+
+            if (res.value && res.value.value) {
+
+                try {
+
+                    results.push(
+                        JSON.parse(
+                            res.value.value.toString('utf8')
+                        )
+                    );
+
+                } catch (_) { }
+            }
+        }
+
+        await iterator.close();
+
+        return JSON.stringify(results);
+    }
+    async GetRecordHistory(ctx, recordID) {
+
+        const iterator = await ctx.stub.getHistoryForKey(recordID);
+
+        const results = [];
+
+        while (true) {
+
+            const res = await iterator.next();
+
+            if (res.done) break;
+
+            const tx = {
+
+                txID: res.value.txId,
+
+                timestamp: res.value.timestamp,
+
+                isDelete: res.value.isDelete
+            };
+
+            if (!res.value.isDelete) {
+
+                try {
+
+                    tx.data = JSON.parse(
+                        res.value.value.toString('utf8')
+                    );
+
+                } catch (_) { }
+            }
+
+            results.push(tx);
+        }
+
+        await iterator.close();
+
+        return JSON.stringify(results);
+    }
+    // ─────────────────────────────────────────
+    // GET ALL RECORDS (admin use)
+    // Returns every upload record on the ledger.
+    // Uses rich query — requires CouchDB.
+    // ─────────────────────────────────────────
+
+    async GetAllRecords(ctx) {
+        const queryString = JSON.stringify({
+            selector: { docType: 'record', isDeleted: false }
+        });
+
+        const iterator = await ctx.stub.getQueryResult(queryString);
+        const results = [];
+
+        while (true) {
+            const res = await iterator.next();
+            if (res.done) break;
+            if (res.value && res.value.value) {
+                try {
+                    results.push(JSON.parse(res.value.value.toString('utf8')));
+                } catch (_) { }
+            }
+        }
+
+        await iterator.close();
+        return JSON.stringify(results);
+    }
+
+    // ─────────────────────────────────────────
+    // GET ALL ACCESS LOGS (admin use)
+    // Returns every access log entry on the ledger.
+    // ─────────────────────────────────────────
+
+    async GetAllAccessLogs(ctx) {
+        const queryString = JSON.stringify({
+            selector: { docType: 'accessLog' }
+        });
+
+        const iterator = await ctx.stub.getQueryResult(queryString);
+        const results = [];
+
+        while (true) {
+            const res = await iterator.next();
+            if (res.done) break;
+            if (res.value && res.value.value) {
+                try {
+                    results.push(JSON.parse(res.value.value.toString('utf8')));
+                } catch (_) { }
+            }
+        }
+
+        await iterator.close();
+        return JSON.stringify(results);
     }
 
     // ─────────────────────────────────────────
@@ -72,14 +378,15 @@ class HealthcareLogs extends Contract {
 
         const queryString = JSON.stringify({
             selector: {
+                docType: 'record',
+                isDeleted: false,
                 department: department,
-                timestamp:  { $lte: ts }
-            },
-    sort: [{ department: 'desc' }, { timestamp: 'desc' }]
+                timestamp: { $lte: ts }
+            }
         });
 
         const iterator = await ctx.stub.getQueryResult(queryString);
-        const results  = [];
+        const results = [];
 
         while (true) {
             const res = await iterator.next();
@@ -106,12 +413,14 @@ class HealthcareLogs extends Contract {
     async QueryByUploader(ctx, uploaderID) {
         const queryString = JSON.stringify({
             selector: {
+                docType: 'record',
+                isDeleted: false,
                 uploaderID: uploaderID
             }
         });
 
         const iterator = await ctx.stub.getQueryResult(queryString);
-        const results  = [];
+        const results = [];
 
         while (true) {
             const res = await iterator.next();
@@ -119,7 +428,7 @@ class HealthcareLogs extends Contract {
             if (res.value && res.value.value) {
                 try {
                     results.push(JSON.parse(res.value.value.toString('utf8')));
-                } catch (_) {}
+                } catch (_) { }
             }
         }
 
@@ -153,10 +462,27 @@ class HealthcareLogs extends Contract {
             throw new Error(`Access denied. Only the uploader can delete record "${recordID}".`);
         }
 
-        await ctx.stub.deleteState(recordID);
+        record.isDeleted = true;
+
+        record.deletedAt = Math.floor(Date.now() / 1000);
+
+        record.deletedBy = requestingUserID;
+
+        record.updatedAt = Math.floor(Date.now() / 1000);
+
+        record.deleteTxID = ctx.stub.getTxID();
+
+        await ctx.stub.putState(
+            recordID,
+            Buffer.from(JSON.stringify(record))
+        );
+
         ctx.stub.setEvent(
-            'RecordDeleted',
-            Buffer.from(JSON.stringify({ recordID, deletedBy: requestingUserID }))
+            'RecordSoftDeleted',
+            Buffer.from(JSON.stringify({
+                recordID,
+                deletedBy: requestingUserID
+            }))
         );
 
         return JSON.stringify({ success: true, recordID });

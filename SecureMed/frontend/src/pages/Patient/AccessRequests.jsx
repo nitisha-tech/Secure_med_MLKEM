@@ -166,7 +166,7 @@ function ApproveModal({ request, onConfirm, onCancel }) {
           </strong>
           {" "}access to{" "}
           <strong style={{ color: "#374151" }}>
-            {request.recordTitle || request.record || "your medical record"}
+            {request.recordTitle || "your medical record"}
           </strong>.
         </p>
 
@@ -372,7 +372,7 @@ export default function AccessRequests() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid #f0f0ee" }}>
-                {["Requester", "Doctor / Org", "Record", "Status", "Actions"].map(h => (
+                {["Doctor", "Specialization / Hospital", "Record Requested", "Status", "Actions"].map(h => (
                   <th key={h} style={{
                     padding: "11px 20px", textAlign: "left", fontSize: 11,
                     fontWeight: 600, color: "#9ca3af", textTransform: "uppercase",
@@ -397,11 +397,16 @@ export default function AccessRequests() {
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                     >
                       <td style={{ padding: "14px 20px" }}>
-                        <div style={{ fontSize: 14, fontWeight: 500, color: "#111" }}>{req.requesterName || req.name || "—"}</div>
-                        <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 1 }}>{req.requesterEmail || req.email || ""}</div>
-                      </td>
-                      <td style={{ padding: "14px 20px", fontSize: 14, color: "#374151" }}>{req.doctorName || req.organization || "—"}</td>
-                      <td style={{ padding: "14px 20px", fontSize: 14, color: "#374151" }}>{req.recordTitle || req.record || "Medical Record"}</td>
+  <div style={{ fontSize: 14, fontWeight: 500, color: "#111" }}>{req.doctorName || "—"}</div>
+  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 1 }}>{req.doctorEmail || ""}</div>
+</td>
+                      <td style={{ padding: "14px 20px" }}>
+  <div style={{ fontSize: 13, color: "#374151" }}>{req.doctorSpecialization || "—"}</div>
+  <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
+    {[req.doctorDepartment, req.doctorHospital].filter(Boolean).join(" · ") || "—"}
+  </div>
+</td>
+                      <td style={{ padding: "14px 20px", fontSize: 14, color: "#374151" }}>{req.recordTitle || "—"}</td>
                       <td style={{ padding: "14px 20px" }}><StatusBadge status={req.status || "pending"} /></td>
                       <td style={{ padding: "14px 20px" }}>
                         {isPending ? (

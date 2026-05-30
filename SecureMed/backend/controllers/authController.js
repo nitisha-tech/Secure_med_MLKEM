@@ -1,7 +1,7 @@
 // backend/controllers/authController.js
-import User              from "../models/user.js";
-import bcrypt            from "bcrypt";
-import jwt               from "jsonwebtoken";
+import User from "../models/user.js";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import DoctorApplication from "../models/DoctorApplication.js";
 
 /* ================= REGISTER ================= */
@@ -20,9 +20,9 @@ export const register = async (req, res) => {
       return res.status(400).json({ message: "pkPre (Kyber768 public key) is required" });
 
     const existingUser = await User.findOne({ email });
-    const existingApp  = await DoctorApplication.findOne({ email, status: "Pending" });
+    const existingApp = await DoctorApplication.findOne({ email, status: "Pending" });
     if (existingUser) return res.status(400).json({ message: "User with this email already exists" });
-    if (existingApp)  return res.status(400).json({ message: "A registration request for this email is already pending" });
+    if (existingApp) return res.status(400).json({ message: "A registration request for this email is already pending" });
 
     const hashedPassword = await bcrypt.hash(password, await bcrypt.genSalt(10));
 
@@ -30,13 +30,13 @@ export const register = async (req, res) => {
       const newUser = new User({
         name, email, password: hashedPassword,
         role: "patient",
-        phone:      phone      || null,
+        phone: phone || null,
         department: department || null,
         pkPre,
       });
       await newUser.save();
       return res.status(201).json({
-        message:   "Patient account created successfully",
+        message: "Patient account created successfully",
         patientId: newUser.patientId,
         user: { id: newUser._id, name, email, role: "patient" },
       });
@@ -49,11 +49,11 @@ export const register = async (req, res) => {
       const newApplication = new DoctorApplication({
         name, email, password: hashedPassword,
         medicalId, specialization, department,
-        phone:      phone      || null,
+        phone: phone || null,
         experience: experience || null,
-        hospital:   hospital   || "City General Hospital",
-        pkPre:      pkPre      || null,
-        status:     "Pending",
+        hospital: hospital || "City General Hospital",
+        pkPre: pkPre || null,
+        status: "Pending",
       });
       await newApplication.save();
       return res.status(201).json({ message: "Doctor registration submitted. Awaiting admin approval." });
@@ -98,29 +98,29 @@ export const approveDoctor = async (req, res) => {
       // Already approved — just mark the application and return success
       // so the server.js post-approval Fabric hook can still run.
       console.log(`ℹ️  User already exists for ${application.email} — marking application approved`);
-      application.status     = "Approved";
+      application.status = "Approved";
       application.approvedBy = req.body.approvedBy || "Admin";
       application.approvedAt = new Date();
       await application.save();
       return res.json({
-        message:  `Doctor ${application.name} approved (user already existed)`,
+        message: `Doctor ${application.name} approved (user already existed)`,
         doctorId: existingUser._id,
       });
     }
 
     // ── 3. Create the User doc ────────────────────────────────────────────────
     const newDoctor = new User({
-      name:           application.name,
-      email:          application.email,
-      password:       application.password,   // already hashed at registration time
-      role:           "doctor",
-      medicalId:      application.medicalId      || null,
+      name: application.name,
+      email: application.email,
+      password: application.password,   // already hashed at registration time
+      role: "doctor",
+      medicalId: application.medicalId || null,
       specialization: application.specialization || null,
-      department:     application.department     || null,
-      phone:          application.phone          || null,
-      experience:     application.experience     || null,
-      hospital:       application.hospital       || null,
-      pkPre:          application.pkPre          || null,
+      department: application.department || null,
+      phone: application.phone || null,
+      experience: application.experience || null,
+      hospital: application.hospital || null,
+      pkPre: application.pkPre || null,
       // patientId pre-save hook skips doctors automatically (role !== "patient")
     });
 
@@ -128,14 +128,14 @@ export const approveDoctor = async (req, res) => {
     console.log(`✅ Doctor User created: ${newDoctor._id} (${newDoctor.email})`);
 
     // ── 4. Mark application approved ─────────────────────────────────────────
-    application.status     = "Approved";
+    application.status = "Approved";
     application.approvedBy = req.body.approvedBy || "Admin";
     application.approvedAt = new Date();
     await application.save();
 
     // ── 5. Respond — server.js post-approval hook fires after this ────────────
     return res.json({
-      message:  `Doctor ${application.name} approved successfully`,
+      message: `Doctor ${application.name} approved successfully`,
       doctorId: newDoctor._id,
     });
 
@@ -156,9 +156,9 @@ export const rejectDoctor = async (req, res) => {
     if (application.status !== "Pending")
       return res.status(400).json({ message: "Application already processed" });
 
-    application.status          = "Rejected";
-    application.rejectionReason = req.body.reason     || "Not approved by admin";
-    application.rejectedBy      = req.body.rejectedBy || "Admin";
+    application.status = "Rejected";
+    application.rejectionReason = req.body.reason || "Not approved by admin";
+    application.rejectedBy = req.body.rejectedBy || "Admin";
     await application.save();
 
     res.json({ message: `Application from ${application.name} rejected` });
@@ -180,15 +180,21 @@ export const login = async (req, res) => {
     const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const user = await User.findOne({
       $or: [
-        { email:     identifier.toLowerCase() },
-        { name:      { $regex: new RegExp(`^${escape(identifier)}$`, "i") } },
+        { email: identifier.toLowerCase() },
+        { name: { $regex: new RegExp(`^${escape(identifier)}$`, "i") } },
         { patientId: identifier.toUpperCase() },
       ],
     });
 
-    if (!user)              return res.status(400).json({ message: "Invalid credentials" });
+    if (!user) return res.status(400).json({ message: "Invalid credentials" });
     if (user.role !== role) return res.status(403).json({ message: "Invalid role selected" });
-
+    console.log(`[Login] user=${user.email} status="${user.status}"`);
+    // After you find the user, before you generate the token:
+    if (user.status === "Suspended") {
+      return res.status(403).json({
+        message: "Your account has been suspended. Please contact the administrator."
+      });
+    }
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
 
@@ -202,12 +208,12 @@ export const login = async (req, res) => {
       message: "Login successful",
       token,
       user: {
-        id:        user._id,
-        name:      user.name,
-        email:     user.email,
-        role:      user.role,
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
         patientId: user.patientId || null,
-        hasPkPre:  !!user.pkPre,
+        hasPkPre: !!user.pkPre,
       },
     });
   } catch (err) {

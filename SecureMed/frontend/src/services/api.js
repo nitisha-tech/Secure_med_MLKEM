@@ -57,7 +57,8 @@ export const getMyRequests  = ()   => apiCall("/requests/mine");
 export const fetchRecord    = (id) => apiCall(`/requests/${id}/fetch`);
 
 // ── Logs ──────────────────────────────────────────────────────────────────────
-export const getLogs = () => apiCall("/logs");
+export const getLogs     = () => apiCall("/logs");           // MongoDB logs (keep if needed)
+export const getMyLogs   = () => apiCall("/my/logs");        // Blockchain activity log
 
 // ── Profile ───────────────────────────────────────────────────────────────────
 export const getProfile = () => apiCall("/profile");
