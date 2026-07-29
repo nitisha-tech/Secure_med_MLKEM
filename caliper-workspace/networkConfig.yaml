@@ -1,0 +1,23 @@
+name: SecureMedBlock-Fabric-Network
+version: "2.0.0"
+
+caliper:
+  blockchain: fabric
+
+channels:
+  - channelName: mychannel
+    contracts:
+      - id: healthcareLogs
+
+organizations:
+  - mspid: Org1MSP
+    identities:
+      certificates:
+        - name: admin
+          clientPrivateKey:
+            path: /home/nitisha/fabric-dev/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/keystore/db52d497f3a29ad1b695bf1c6101b9070bed6159922c992176c7478595f76561_sk
+          clientSignedCert:
+            path: /home/nitisha/fabric-dev/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp/signcerts/cert.pem
+    connectionProfile:
+      path: /home/nitisha/fabric-dev/fabric-samples/test-network/organizations/peerOrganizations/org1.example.com/connection-org1.yaml
+      discover: true

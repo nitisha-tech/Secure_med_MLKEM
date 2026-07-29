@@ -1,0 +1,57 @@
+test:
+  name: SecureMedBlock-Benchmark
+  description: Hyperledger Fabric Performance Evaluation for SecureMedBlock
+
+  workers:
+    number: 2
+
+  rounds:
+    - label: LogEvent
+      description: Audit log write to blockchain
+      txNumber: 100
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/logEvent.js
+
+    - label: UploadRecord
+      description: Patient uploads medical record metadata
+      txNumber: 100
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/uploadRecord.js
+
+    - label: AccessRequest
+      description: Doctor requests access to a record
+      txNumber: 100
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/accessRequest.js
+
+    - label: QueryRecord
+      description: Query a single record by ID
+      txNumber: 100
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/queryRecord.js
+
+    - label: GetHistory
+      description: Get transaction history for a record
+      txNumber: 100
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/getHistory.js

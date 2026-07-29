@@ -1,0 +1,8 @@
+{
+  "name": "caliper-workspace",
+  "version": "1.0.0",
+  "dependencies": {
+    "@hyperledger/caliper-cli": "0.5.0",
+    "@hyperledger/caliper-fabric": "0.5.0"
+  }
+}
